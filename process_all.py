@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-
+import sys
+import os
 from os import path, makedirs, listdir
 from shutil import move
 from spacepy import pycdf
@@ -8,7 +9,7 @@ import h5py
 from subprocess import call
 from tempfile import TemporaryDirectory
 from tqdm import tqdm
-
+import cv2
 from metadata import load_h36m_metadata
 
 
@@ -17,12 +18,12 @@ metadata = load_h36m_metadata()
 # Subjects to include when preprocessing
 included_subjects = {
     'S1': 1,
-    'S5': 5,
-    'S6': 6,
-    'S7': 7,
-    'S8': 8,
-    'S9': 9,
-    'S11': 11,
+#    'S5': 5,
+#    'S6': 6,
+#    'S7': 7,
+#    'S8': 8,
+#    'S9': 9,
+#    'S11': 11,
 }
 
 # Sequences with known issues
@@ -68,22 +69,51 @@ def infer_camera_intrinsics(points2d, points3d):
     alpha_y, y_0 = list(np.linalg.lstsq(y3d, y2d, rcond=-1)[0].flatten())
     return np.array([alpha_x, x_0, alpha_y, y_0])
 
+def _reshape_tof(tof_stack):
+      'Reshape into n_views x 144 x 176'
+      tmp = np.dsplit(tof_stack, tof_stack.shape[2])
+      tmp = [p.reshape(p.shape[0], p.shape[1]) for p in tmp]
+      return np.stack(tmp)
+
+def _decode_tof_intensity(tof_int, threshold=2300):
+      intensity = np.where(tof_int > threshold, threshold, tof_int)
+      intensity = cv2.convertScaleAbs(intensity, alpha=255/np.max(intensity))
+      return intensity
+
+def _process_bbox(bbox_mask):
+      rows = np.any(bbox_mask, axis=1)
+      cols = np.any(bbox_mask, axis=0)
+      rmin, rmax = np.where(rows)[0][[0, -1]]
+      cmin, cmax = np.where(cols)[0][[0, -1]]
+      return np.array([[cmin, rmin], [cmax, rmax]])
 
 def process_view(out_dir, subject, action, subaction, camera):
     subj_dir = path.join('extracted', subject)
 
     base_filename = metadata.get_base_filename(subject, action, subaction, camera)
-
+    tof_filename = metadata.get_base_filename(subject, action, subaction, '')[:-1]
     # Load joint position annotations
-    with pycdf.CDF(path.join(subj_dir, 'Poses_D2_Positions', base_filename + '.cdf')) as cdf:
-        poses_2d = np.array(cdf['Pose'])
-        poses_2d = poses_2d.reshape(poses_2d.shape[1], 32, 2)
-    with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions_mono_universal', base_filename + '.cdf')) as cdf:
-        poses_3d_univ = np.array(cdf['Pose'])
-        poses_3d_univ = poses_3d_univ.reshape(poses_3d_univ.shape[1], 32, 3)
-    with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions_mono', base_filename + '.cdf')) as cdf:
-        poses_3d = np.array(cdf['Pose'])
-        poses_3d = poses_3d.reshape(poses_3d.shape[1], 32, 3)
+    try:
+          with pycdf.CDF(path.join(subj_dir, 'Poses_D2_Positions', base_filename + '.cdf')) as cdf:
+                poses_2d = np.array(cdf['Pose'])
+                poses_2d = poses_2d.reshape(poses_2d.shape[1], 32, 2)
+          with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions_mono_universal', base_filename + '.cdf')) as cdf:
+                poses_3d_univ = np.array(cdf['Pose'])
+                poses_3d_univ = poses_3d_univ.reshape(poses_3d_univ.shape[1], 32, 3)
+          with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions_mono', base_filename + '.cdf')) as cdf:
+                poses_3d = np.array(cdf['Pose'])
+                poses_3d = poses_3d.reshape(poses_3d.shape[1], 32, 3)
+          with h5py.File(path.join(subj_dir, 'BBox', base_filename + '.mat'), 'r') as file:
+                bboxes = [_process_bbox(file[p[0]].value.T) for p in file['Masks']]
+                bboxes = np.array(bboxes)
+    except OSError as e:
+          print('Error on loading annotations')
+          print(path.join(subj_dir, 'Poses_D2_Positions', base_filename + '.cdf')) 
+          print(path.join(subj_dir, 'Poses_D3_Positions_mono_universal', base_filename + '.cdf'))
+          print(path.join(subj_dir, 'Poses_D3_Positions_mono', base_filename + '.cdf'))
+          print(path.join(subj_dir, 'BBox', base_filename + '.mat'))
+          print(e.errno, e.strerror, e.filename, e.filename2)
+          raise e
 
     # Infer camera intrinsics
     camera_int = infer_camera_intrinsics(poses_2d, poses_3d)
@@ -93,17 +123,28 @@ def process_view(out_dir, subject, action, subaction, camera):
     frames = frame_indices + 1
     video_file = path.join(subj_dir, 'Videos', base_filename + '.mp4')
     frames_dir = path.join(out_dir, 'imageSequence', camera)
+    range_dir = path.join(out_dir, 'ToFSequence')
+    debug_dir = path.join(out_dir, 'DebugBbox', camera)
     makedirs(frames_dir, exist_ok=True)
+    makedirs(range_dir, exist_ok=True)
+    makedirs(debug_dir, exist_ok=True)
 
     # Check to see whether the frame images have already been extracted previously
     existing_files = {f for f in listdir(frames_dir)}
+    existing_range_files = {f for f in listdir(range_dir)}
     frames_are_extracted = True
     for i in frames:
         filename = 'img_%06d.jpg' % i
         if filename not in existing_files:
             frames_are_extracted = False
             break
-
+    range_are_extracted = True
+    for i in frame_indices:
+          filename = 'tof_range%06d.jpg' % i
+          if filename not in existing_range_files:
+                range_are_extracted = False
+                break
+          
     if not frames_are_extracted:
         with TemporaryDirectory() as tmp_dir:
             # Use ffmpeg to extract frames into a temporary directory
@@ -122,6 +163,31 @@ def process_view(out_dir, subject, action, subaction, camera):
                     path.join(tmp_dir, filename),
                     path.join(frames_dir, filename)
                 )
+                ''' DEBUGGGGGGG ''' '''
+                img = cv2.imread(path.join(frames_dir, filename))
+                c1 = (bboxes[i][0][0], bboxes[i][0][1])
+                c2 = (bboxes[i][1][0], bboxes[i][1][1])
+                cv2.circle(img, c1, 20, (255,0,0), -1)
+                cv2.circle(img, c2, 20, (0,0,255), -1)
+                cv2.imwrite(path.join(debug_dir, filename), img)'''
+                
+    if not range_are_extracted:
+        try:
+              with pycdf.CDF(path.join(subj_dir, 'TOF', tof_filename + '.cdf')) as cdf:
+                    tof_range = _reshape_tof(np.array(cdf['RangeFrames'][0]))
+                    tof_int = _reshape_tof(np.array(cdf['IntensityFrames'][0]))
+                    tof_sync = np.array(cdf['Index'][0]).astype(int)
+        except OSError as e:
+              print('error loading tof files')
+              print(e.errno, e.strerror, e.filename, e.filename2)
+        for i in frame_indices:
+                f_img = tof_range[tof_sync[i] - 1]
+                m = np.max(f_img)
+                img = cv2.convertScaleAbs(src=f_img, alpha=255/m)
+                cv2.imwrite(path.join(range_dir, 'tof_range%06d.jpg' % i),
+                             img)
+                cv2.imwrite(path.join(range_dir, 'tof_intensity%06d.jpg' % i),
+                            _decode_tof_intensity(tof_int[tof_sync[i] - 1]))
 
     return {
         'pose/2d': poses_2d[frame_indices],
@@ -134,6 +200,7 @@ def process_view(out_dir, subject, action, subaction, camera):
         'subject': np.full(frames.shape, int(included_subjects[subject])),
         'action': np.full(frames.shape, int(action)),
         'subaction': np.full(frames.shape, int(subaction)),
+        'bbox': bboxes[frame_indices],
     }
 
 
@@ -149,8 +216,10 @@ def process_subaction(subject, action, subaction):
 
         try:
             annots = process_view(out_dir, subject, action, subaction, camera)
-        except:
+        except OSError as e:
             print('Error processing sequence, skipping: ', repr((subject, action, subaction, camera)))
+            print(e.errno, e.filename, e.strerror)
+            raise e
             continue
 
         for k, v in annots.items():

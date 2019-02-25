@@ -5,7 +5,8 @@ import tarfile
 from tqdm import tqdm
 
 
-subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
+#subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
+subjects = ['S1']
 
 
 # https://stackoverflow.com/a/6718435
@@ -42,6 +43,11 @@ def extract_all():
                   path.join(out_dir, 'Poses_D3_Positions_mono_universal')),
       extract_tgz('archives/Videos_{}.tgz'.format(subject_id),
                   path.join(out_dir, 'Videos'))
+      extract_tgz('archives/BBoxes_{}.tgz'.format(subject_id),
+                  path.join(out_dir, 'BBox'))
+      extract_tgz('archives/TOF_{}.tgz'.format(subject_id),
+                  path.join(out_dir, 'TOF'))
+
 
 
 if __name__ == '__main__':
