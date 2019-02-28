@@ -87,6 +87,50 @@ def _process_bbox(bbox_mask):
       cmin, cmax = np.where(cols)[0][[0, -1]]
       return np.array([[cmin, rmin], [cmax, rmax]])
 
+def _get_3D_BBox(pose3D):
+      min_coords = np.min(pose3D, axis=0)
+      max_coords = np.max(pose3D, axis=0)
+      return [min_coords, max_coords]
+
+def _make_zero_center(pose3D):
+      center = np.mean(pose3D, axis=0)
+      return pose3D - center
+
+def _make_unit_diagonal(pose3D):
+      bbox_min, bbox_max = _get_3D_BBox(pose3D)
+      length = np.linalg.norm((bbox_max - bbox_min))
+      return pose3D / (length)
+      
+def _make_centred_unit_bbox(pose3D):
+      centred_pose = _make_centred_unit_bbox(pose3D)
+      return _make_unit_diagonal(centred_pose)
+
+def _compute_scales(old_size, new_size):
+      nrows, ncols = new_size
+      fy = nrows / old_size[0]
+      fx = ncols / old_size[1]
+      return fx,fy
+      
+
+def _draw_annot(img, bbox, pose):
+      img2 = img.copy()
+      cv2.rectangle(img2, tuple(bbox[0]), tuple(bbox[1]), (0, 255, 0), 3)
+      for i in pose:
+            cv2.circle(img2, tuple(i), 1, (255,0,0), -1)
+      return img2
+
+def _pad_with_zeros(img, new_res):
+      y_gap = new_res[0] - img.shape[0]
+      x_gap = new_res[1] - img.shape[1]
+      if (x_gap < 0 or y_gap < 0):
+            return img
+      new_img = np.zeros(new_res, dtype=img.dtype)
+      x_gap = x_gap // 2
+      y_gap = y_gap // 2
+      new_img[y_gap:(img.shape[0] + y_gap), x_gap:(img.shape[1] + x_gap)] = img.copy()
+      return new_img
+      
+
 def process_view(out_dir, subject, action, subaction, camera):
     subj_dir = path.join('extracted', subject)
 
@@ -114,7 +158,7 @@ def process_view(out_dir, subject, action, subaction, camera):
           print(path.join(subj_dir, 'BBox', base_filename + '.mat'))
           print(e.errno, e.strerror, e.filename, e.filename2)
           raise e
-
+    poses_3d_normalized = np.asarray([_make_unit_diagonal(p) for p in poses_3d_univ])
     # Infer camera intrinsics
     camera_int = infer_camera_intrinsics(poses_2d, poses_3d)
     camera_int_univ = infer_camera_intrinsics(poses_2d, poses_3d_univ)
@@ -128,6 +172,7 @@ def process_view(out_dir, subject, action, subaction, camera):
     makedirs(frames_dir, exist_ok=True)
     makedirs(range_dir, exist_ok=True)
     makedirs(debug_dir, exist_ok=True)
+    scales = np.zeros((bboxes.shape[0],2))
 
     # Check to see whether the frame images have already been extracted previously
     existing_files = {f for f in listdir(frames_dir)}
@@ -144,7 +189,6 @@ def process_view(out_dir, subject, action, subaction, camera):
           if filename not in existing_range_files:
                 range_are_extracted = False
                 break
-          
     if not frames_are_extracted:
         with TemporaryDirectory() as tmp_dir:
             # Use ffmpeg to extract frames into a temporary directory
@@ -152,24 +196,33 @@ def process_view(out_dir, subject, action, subaction, camera):
                 'ffmpeg',
                 '-nostats', '-loglevel', '0',
                 '-i', video_file,
+                '-vf', 'scale=224:224',
                 '-qscale:v', '3',
                 path.join(tmp_dir, 'img_%06d.jpg')
             ])
 
             # Move included frame images into the output directory
+            
             for i in frames:
                 filename = 'img_%06d.jpg' % i
                 move(
                     path.join(tmp_dir, filename),
                     path.join(frames_dir, filename)
                 )
-                ''' DEBUGGGGGGG ''' '''
+                # Applying scales to the 2d coordinates of bounding box and 2d pose
+                idx = i-1
+                scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], [224, 224])
+                bboxes[idx] = bboxes[idx] * scales[idx]
+                poses_2d[idx] = poses_2d[idx] * scales[idx]
+                ''' DEBUG ''' '''
+                pose_filename = 'pose_%06d.txt' % i
+                pose_norm_filename = 'pose_norm_%06d.txt' % i
+                np.savetxt(path.join(debug_dir, pose_filename),
+                           poses_3d_univ[idx])
+                np.savetxt(path.join(debug_dir, pose_norm_filename),
+                           poses_3d_normalized[idx])
                 img = cv2.imread(path.join(frames_dir, filename))
-                c1 = (bboxes[i][0][0], bboxes[i][0][1])
-                c2 = (bboxes[i][1][0], bboxes[i][1][1])
-                cv2.circle(img, c1, 20, (255,0,0), -1)
-                cv2.circle(img, c2, 20, (0,0,255), -1)
-                cv2.imwrite(path.join(debug_dir, filename), img)'''
+                cv2.imwrite(path.join(debug_dir, filename), _draw_annot(img, bboxes[idx], poses_2d[idx]))#'''
                 
     if not range_are_extracted:
         try:
@@ -181,14 +234,13 @@ def process_view(out_dir, subject, action, subaction, camera):
               print('error loading tof files')
               print(e.errno, e.strerror, e.filename, e.filename2)
         for i in frame_indices:
-                f_img = tof_range[tof_sync[i] - 1]
+                f_img = _pad_with_zeros(tof_range[tof_sync[i] - 1], (224,224))
                 m = np.max(f_img)
                 img = cv2.convertScaleAbs(src=f_img, alpha=255/m)
                 cv2.imwrite(path.join(range_dir, 'tof_range%06d.jpg' % i),
                              img)
                 cv2.imwrite(path.join(range_dir, 'tof_intensity%06d.jpg' % i),
-                            _decode_tof_intensity(tof_int[tof_sync[i] - 1]))
-
+                            _decode_tof_intensity(_pad_with_zeros(tof_int[tof_sync[i] - 1], (224,224))))
     return {
         'pose/2d': poses_2d[frame_indices],
         'pose/3d-univ': poses_3d_univ[frame_indices],
@@ -201,6 +253,7 @@ def process_view(out_dir, subject, action, subaction, camera):
         'action': np.full(frames.shape, int(action)),
         'subaction': np.full(frames.shape, int(subaction)),
         'bbox': bboxes[frame_indices],
+        'pose/3d-norm': poses_3d_normalized[frame_indices]
     }
 
 
@@ -247,7 +300,7 @@ def process_all():
         subactions += [
             (subject, action, subaction)
             for action, subaction in sequence_mappings[subject].keys()
-            if int(action) > 1  # Exclude '_ALL'
+            if int(action) > 1 and action not in ['54138969', '55011271', '58860488', '60457274']  # Exclude '_ALL'
         ]
 
     for subject, action, subaction in tqdm(subactions, ascii=True, leave=False):

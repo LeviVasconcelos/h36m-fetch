@@ -37,6 +37,12 @@ def download_file(url, dest_file, phpsessid):
           '-o', dest_file,
           url])
 
+def download_file_wget(url, dest_file, cookies):
+      call(['wget',
+            '-qO-',
+            '--load-cookies', cookies,
+            url,
+            '-o', dest_file])
 
 def get_phpsessid():
     config = configparser.ConfigParser()
@@ -94,10 +100,11 @@ def download_all(phpsessid):
             if checksums.get(out_file, None) == checksum:
                 continue
 
-        download_file(BASE_URL + '?' + query, out_file, phpsessid)
+        #download_file(BASE_URL + '?' + query, out_file, phpsessid)
+        download_file_wget(BASE_URL + '?' + query, out_file, 'cookies.txt')
 
 
 if __name__ == '__main__':
     phpsessid = get_phpsessid()
-    verify_phpsessid(phpsessid)
+    #verify_phpsessid(phpsessid)
     download_all(phpsessid)
