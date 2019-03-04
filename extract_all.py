@@ -5,8 +5,8 @@ import tarfile
 from tqdm import tqdm
 
 
-#subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
-subjects = ['S1']
+subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
+s#ubjects = ['S1']
 
 
 # https://stackoverflow.com/a/6718435

@@ -18,17 +18,19 @@ metadata = load_h36m_metadata()
 # Subjects to include when preprocessing
 included_subjects = {
     'S1': 1,
-#    'S5': 5,
-#    'S6': 6,
-#    'S7': 7,
-#    'S8': 8,
-#    'S9': 9,
-#    'S11': 11,
+    'S5': 5,
+    'S6': 6,
+    'S7': 7,
+    'S8': 8,
+    'S9': 9,
+    'S11': 11,
 }
 
 # Sequences with known issues
 blacklist = {
     ('S11', '2', '2', '54138969'),  # Video file is corrupted
+    ('S7', '15', '2', ''), # TOF video does not exists.
+    ('S5', '4', '2', ''), # TOF video does not exists.
 }
 
 
@@ -214,13 +216,16 @@ def process_view(out_dir, subject, action, subaction, camera):
                 scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], [224, 224])
                 bboxes[idx] = bboxes[idx] * scales[idx]
                 poses_2d[idx] = poses_2d[idx] * scales[idx]
-                ''' DEBUG ''' '''
+                ''' DEBUG '''
                 pose_filename = 'pose_%06d.txt' % i
                 pose_norm_filename = 'pose_norm_%06d.txt' % i
+                pose_2d_filename = 'pose_2d_%06d.txt' % i
                 np.savetxt(path.join(debug_dir, pose_filename),
                            poses_3d_univ[idx])
                 np.savetxt(path.join(debug_dir, pose_norm_filename),
                            poses_3d_normalized[idx])
+                np.savetxt(path.join(debug_dir, pose_2d_filename),
+                           poses_2d[idx])
                 img = cv2.imread(path.join(frames_dir, filename))
                 cv2.imwrite(path.join(debug_dir, filename), _draw_annot(img, bboxes[idx], poses_2d[idx]))#'''
                 
@@ -229,17 +234,19 @@ def process_view(out_dir, subject, action, subaction, camera):
               with pycdf.CDF(path.join(subj_dir, 'TOF', tof_filename + '.cdf')) as cdf:
                     tof_range = _reshape_tof(np.array(cdf['RangeFrames'][0]))
                     tof_int = _reshape_tof(np.array(cdf['IntensityFrames'][0]))
-                    tof_sync = np.array(cdf['Index'][0]).astype(int)
-        except OSError as e:
-              print('error loading tof files')
-              print(e.errno, e.strerror, e.filename, e.filename2)
+                    tof_sync = np.array(cdf['Index'][0]).astype(int) # 1-indexed array (from matlab)
+        except pycdf.CDFError as e:
+              print('path joint: ', path.join(subj_dir, 'TOF', tof_filename + '.cdf'))
+              print('metadata out: ', metadata.get_base_filename(subject, action, subaction, ''))
+              print('subject, aciton, subaction: ', subject, action, subaction)
+
         for i in frame_indices:
                 f_img = _pad_with_zeros(tof_range[tof_sync[i] - 1], (224,224))
                 m = np.max(f_img)
                 img = cv2.convertScaleAbs(src=f_img, alpha=255/m)
-                cv2.imwrite(path.join(range_dir, 'tof_range%06d.jpg' % i),
+                cv2.imwrite(path.join(range_dir, 'tof_range%06d.jpg' % (i+1)),
                              img)
-                cv2.imwrite(path.join(range_dir, 'tof_intensity%06d.jpg' % i),
+                cv2.imwrite(path.join(range_dir, 'tof_intensity%06d.jpg' % (i+1)),
                             _decode_tof_intensity(_pad_with_zeros(tof_int[tof_sync[i] - 1], (224,224))))
     return {
         'pose/2d': poses_2d[frame_indices],
@@ -264,7 +271,7 @@ def process_subaction(subject, action, subaction):
     makedirs(out_dir, exist_ok=True)
 
     for camera in tqdm(metadata.camera_ids, ascii=True, leave=False):
-        if (subject, action, subaction, camera) in blacklist:
+        if (subject, action, subaction, camera) in blacklist or (subject, action, subaction, '') in blacklist:
             continue
 
         try:

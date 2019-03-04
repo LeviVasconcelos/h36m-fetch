@@ -100,8 +100,8 @@ def download_all(phpsessid):
             if checksums.get(out_file, None) == checksum:
                 continue
 
-        #download_file(BASE_URL + '?' + query, out_file, phpsessid)
-        download_file_wget(BASE_URL + '?' + query, out_file, 'cookies.txt')
+        download_file(BASE_URL + '?' + query, out_file, phpsessid)
+        #download_file_wget(BASE_URL + '?' + query, out_file, 'cookies.txt')
 
 
 if __name__ == '__main__':
