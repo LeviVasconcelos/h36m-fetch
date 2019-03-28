@@ -81,6 +81,8 @@ def download_all(phpsessid):
              'download=1&filepath=Poses/D3_Positions_mono&filename=SubjectSpecific_{}.tgz'.format(id)),
             ('Poses_D3_Positions_mono_universal_{}.tgz'.format(subject_id),
              'download=1&filepath=Poses/D3_Positions_mono_universal&filename=SubjectSpecific_{}.tgz'.format(id)),
+            ('Poses_D3_Positions_{}.tgz'.format(subject_id),
+             'download=1&filepath=Poses/D3_Positions&filename=SubjectSpecific_{}.tgz'.format(id)),
             ('Videos_{}.tgz'.format(subject_id),
              'download=1&filepath=Videos&filename=SubjectSpecific_{}.tgz'.format(id)),
             ('BBoxes_{}.tgz'.format(subject_id),
@@ -106,5 +108,5 @@ def download_all(phpsessid):
 
 if __name__ == '__main__':
     phpsessid = get_phpsessid()
-    #verify_phpsessid(phpsessid)
+    verify_phpsessid(phpsessid)
     download_all(phpsessid)

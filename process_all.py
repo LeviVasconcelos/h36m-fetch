@@ -149,6 +149,9 @@ def process_view(out_dir, subject, action, subaction, camera):
           with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions_mono', base_filename + '.cdf')) as cdf:
                 poses_3d = np.array(cdf['Pose'])
                 poses_3d = poses_3d.reshape(poses_3d.shape[1], 32, 3)
+          with pycdf.CDF(path.join(subj_dir, 'Poses_D3_Positions', tof_filename + '.cdf')) as cdf:
+                poses_3d_original = np.array(cdf['Pose'])
+                poses_3d_original = poses_3d_original.reshape(poses_3d_original.shape[1], 32, 3)
           with h5py.File(path.join(subj_dir, 'BBox', base_filename + '.mat'), 'r') as file:
                 bboxes = [_process_bbox(file[p[0]].value.T) for p in file['Masks']]
                 bboxes = np.array(bboxes)
@@ -216,7 +219,7 @@ def process_view(out_dir, subject, action, subaction, camera):
                 scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], [224, 224])
                 bboxes[idx] = bboxes[idx] * scales[idx]
                 poses_2d[idx] = poses_2d[idx] * scales[idx]
-                ''' DEBUG '''
+                ''' 
                 pose_filename = 'pose_%06d.txt' % i
                 pose_norm_filename = 'pose_norm_%06d.txt' % i
                 pose_2d_filename = 'pose_2d_%06d.txt' % i
@@ -227,7 +230,7 @@ def process_view(out_dir, subject, action, subaction, camera):
                 np.savetxt(path.join(debug_dir, pose_2d_filename),
                            poses_2d[idx])
                 img = cv2.imread(path.join(frames_dir, filename))
-                cv2.imwrite(path.join(debug_dir, filename), _draw_annot(img, bboxes[idx], poses_2d[idx]))#'''
+                cv2.imwrite(path.join(debug_dir, filename), _draw_annot(img, bboxes[idx], poses_2d[idx]))#DEBUG '''
                 
     if not range_are_extracted:
         try:
@@ -252,6 +255,7 @@ def process_view(out_dir, subject, action, subaction, camera):
         'pose/2d': poses_2d[frame_indices],
         'pose/3d-univ': poses_3d_univ[frame_indices],
         'pose/3d': poses_3d[frame_indices],
+        'pose/3d-original': poses_3d_original[frame_indices],
         'intrinsics/' + camera: camera_int,
         'intrinsics-univ/' + camera: camera_int_univ,
         'frame': frames,

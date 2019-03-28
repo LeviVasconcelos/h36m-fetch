@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 
 subjects = ['S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S11']
-s#ubjects = ['S1']
+#subjects = ['S1']
 
 
 # https://stackoverflow.com/a/6718435
@@ -39,6 +39,8 @@ def extract_all():
                   path.join(out_dir, 'Poses_D2_Positions'))
       extract_tgz('archives/Poses_D3_Positions_mono_{}.tgz'.format(subject_id),
                   path.join(out_dir, 'Poses_D3_Positions_mono')),
+      extract_tgz('archives/Poses_D3_Positions_{}.tgz'.format(subject_id),
+                  path.join(out_dir, 'Poses_D3_Positions')),
       extract_tgz('archives/Poses_D3_Positions_mono_universal_{}.tgz'.format(subject_id),
                   path.join(out_dir, 'Poses_D3_Positions_mono_universal')),
       extract_tgz('archives/Videos_{}.tgz'.format(subject_id),
