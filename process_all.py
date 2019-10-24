@@ -11,7 +11,7 @@ from tempfile import TemporaryDirectory
 from tqdm import tqdm
 import cv2
 from metadata import load_h36m_metadata
-
+from PIL import Image
 
 metadata = load_h36m_metadata()
 
@@ -115,23 +115,59 @@ def _compute_scales(old_size, new_size):
       
 
 def _draw_annot(img, bbox, pose):
-      img2 = img.copy()
-      cv2.rectangle(img2, tuple(bbox[0]), tuple(bbox[1]), (0, 255, 0), 3)
+      img2 = cv2.copyTo(img, None)
+      #cv2.rectangle(img2, tuple(bbox[0]), tuple(bbox[1]), (0, 255, 0), 3)
       for i in pose:
             cv2.circle(img2, tuple(i), 1, (255,0,0), -1)
       return img2
 
 def _pad_with_zeros(img, new_res):
-      y_gap = new_res[0] - img.shape[0]
-      x_gap = new_res[1] - img.shape[1]
-      if (x_gap < 0 or y_gap < 0):
-            return img
-      new_img = np.zeros(new_res, dtype=img.dtype)
-      x_gap = x_gap // 2
-      y_gap = y_gap // 2
-      new_img[y_gap:(img.shape[0] + y_gap), x_gap:(img.shape[1] + x_gap)] = img.copy()
-      return new_img
+    y_gap = new_res[0] - img.shape[0]
+    x_gap = new_res[1] - img.shape[1]
+    if (x_gap < 0 or y_gap < 0):
+          return img
+    new_img = np.zeros(new_res, dtype=img.dtype)
+    x_gap = x_gap // 2
+    y_gap = y_gap // 2
+    new_img[y_gap:(img.shape[0] + y_gap), x_gap:(img.shape[1] + x_gap)] = img.copy()
+    return new_img
       
+
+def _make_square(bbox):
+    origin_box = bbox[1] - bbox[0]
+    min_idx = np.argmin(origin_box)
+    max_idx = np.argmax(origin_box)
+    diff = (origin_box[max_idx] - origin_box[min_idx])
+    resize = np.zeros((2,2), dtype=np.float)
+    resize[:, min_idx] = np.asarray([-diff/2, diff/2])
+    new_bbox = bbox + resize
+    return new_bbox
+
+def _transform_image(image, bbox_):
+    img_size = 128
+    bbox = _make_square(bbox_)
+    ratio = float(image.size[1] / img_size)
+    box = tuple(bbox.reshape(-1))
+    image_ = image.crop(box=box).resize((img_size, img_size))
+    if image_ is None:
+        print('Image none, cropbox: ', box)
+        print('Image shape: ', image.size)
+        raise ValueError 
+   
+    return image_ 
+
+def _transform_2dkp_annots(kps_, bbox_):
+    img_size = 128
+    bbox = _make_square(bbox_)
+    bbox_size = bbox[1][0] - bbox[0][0]
+    ratio = float(bbox_size / img_size)
+    shifted_kps = kps_ - bbox[0]
+    scaled_kps = shifted_kps / ratio
+
+    return scaled_kps
+
+
+
 
 def process_view(out_dir, subject, action, subaction, camera):
     subj_dir = path.join('extracted', subject)
@@ -155,6 +191,10 @@ def process_view(out_dir, subject, action, subaction, camera):
           with h5py.File(path.join(subj_dir, 'BBox', base_filename + '.mat'), 'r') as file:
                 bboxes = [_process_bbox(file[p[0]].value.T) for p in file['Masks']]
                 bboxes = np.array(bboxes)
+          with h5py.File(path.join(subj_dir, 'BGSub', base_filename + '.mat'), 'r') as file:
+                bgsub = [file[p[0]].value.T for p in file['Masks']]
+                bgsub = np.array(bgsub)
+ 
     except OSError as e:
           print('Error on loading annotations')
           print(path.join(subj_dir, 'Poses_D2_Positions', base_filename + '.cdf')) 
@@ -168,7 +208,8 @@ def process_view(out_dir, subject, action, subaction, camera):
     camera_int = infer_camera_intrinsics(poses_2d, poses_3d)
     camera_int_univ = infer_camera_intrinsics(poses_2d, poses_3d_univ)
 
-    frame_indices = select_frame_indices_to_include(subject, poses_3d_univ)
+    #frame_indices = np.arange(0,50)
+    frame_indices = select_frame_indices_to_include(subject, poses_3d_univ) #UNCOMMENT THIS FOR COMON DATASET******************************************************************
     frames = frame_indices + 1
     video_file = path.join(subj_dir, 'Videos', base_filename + '.mp4')
     frames_dir = path.join(out_dir, 'imageSequence', camera)
@@ -178,6 +219,7 @@ def process_view(out_dir, subject, action, subaction, camera):
     makedirs(range_dir, exist_ok=True)
     makedirs(debug_dir, exist_ok=True)
     scales = np.zeros((bboxes.shape[0],2))
+    image_size_multiplier = [1,1]
 
     # Check to see whether the frame images have already been extracted previously
     existing_files = {f for f in listdir(frames_dir)}
@@ -201,24 +243,32 @@ def process_view(out_dir, subject, action, subaction, camera):
                 'ffmpeg',
                 '-nostats', '-loglevel', '0',
                 '-i', video_file,
-                '-vf', 'scale=224:224',
+                #'-vf', #'-qscale:v', '3', #'scale=224:224',
                 '-qscale:v', '3',
                 path.join(tmp_dir, 'img_%06d.jpg')
             ])
+            print('\nfiles extracted from: %s / to: %s'% ( video_file, tmp_dir))
 
             # Move included frame images into the output directory
             
             for i in frames:
-                filename = 'img_%06d.jpg' % i
-                move(
-                    path.join(tmp_dir, filename),
-                    path.join(frames_dir, filename)
-                )
-                # Applying scales to the 2d coordinates of bounding box and 2d pose
                 idx = i-1
-                scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], [224, 224])
-                bboxes[idx] = bboxes[idx] * scales[idx]
-                poses_2d[idx] = poses_2d[idx] * scales[idx]
+                filename = 'img_%06d.jpg' % i
+                img = Image.open(path.join(tmp_dir, filename)) 
+                #img = np.array(img) * bgsub[idx][:, :, np.newaxis]
+                #img = Image.fromarray(img)
+                _transform_image(img, bboxes[idx]).save(path.join(frames_dir, filename)) 
+
+
+                #move(
+                #    path.join(tmp_dir, filename),
+                #    path.join(frames_dir, filename)
+                #)
+                # Applying scales to the 2d coordinates of bounding box and 2d pose
+                #scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], [224, 224])
+                scales[idx] = _compute_scales(metadata.sequence_mappings[subject][(camera, '')], metadata.sequence_mappings[subject][(camera, '')]) 
+                poses_2d[idx] = _transform_2dkp_annots(poses_2d[idx], bboxes[idx]) 
+
                 ''' 
                 pose_filename = 'pose_%06d.txt' % i
                 pose_norm_filename = 'pose_norm_%06d.txt' % i
@@ -270,8 +320,9 @@ def process_view(out_dir, subject, action, subaction, camera):
 
 def process_subaction(subject, action, subaction):
     datasets = {}
-
-    out_dir = path.join('processed', subject, metadata.action_names[action] + '-' + subaction)
+    #dir_out = 'processed'
+    dir_out = 'video_processed_resized_crop'
+    out_dir = path.join(dir_out, subject, metadata.action_names[action] + '-' + subaction)
     makedirs(out_dir, exist_ok=True)
 
     for camera in tqdm(metadata.camera_ids, ascii=True, leave=False):
