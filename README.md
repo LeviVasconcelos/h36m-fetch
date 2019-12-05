@@ -56,3 +56,15 @@ using the data in your own research. The file `metadata.xml` is directly
 copied from the "Visualisation and large scale prediction software"
 bundle from the Human3.6M website, and is subject to the same license
 agreement.
+
+## Labeled keypoints:
+| id | name | id | name | id | name | id | name |
+| -- | ---- | -- | ---- | -- | ---- | -- | ---- |
+| 0 | Hips           |  8 | Left Foot     | 16 | Left Shoulder *  | 24 | Right Shoulder *  |
+| 1 | Right Up Leg   |  9 | Left Toe Base | 17 | Left Arm        | 25 | Right Arm        |
+| 2 | Right Leg      | 10 | Site          | 18 | Left Fore Arm   | 26 | Right Fore Arm   |
+| 3 | Right Foot     | 11 | Spine         | 19 | Left Hand -      | 27 | Right Hand  ~     |
+| 4 | Right Toe Base | 12 | Spine 1       | 20 | Left Hand Thumb - | 28 | Right Hand Thumb ~ |
+| 5 | Site           | 13 | Neck *         | 21 | Site            | 29 | Site             |
+| 6 | Left Up Leg    | 14 | Head          | 22 | Left Wrist End + | 30 | Right Wrist End % |
+| 7 | Left Leg       | 15 | Site          | 23 | Site           + | 31 | Site            % |
