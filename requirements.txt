@@ -1,6 +1,7 @@
-numpy==1.13.3
-tqdm==4.19.8
-h5py==2.7.1
-spacepy==0.1.6
-requests==2.19.1
-opencv-python==3.4.4.19
+adium-theme-ubuntu==0.3.4
+iotop==0.6
+numpy==1.11.0
+Pillow==3.1.2
+Pyste==0.9.10
+tqdm==4.31.1
+unity-lens-photos==1.0

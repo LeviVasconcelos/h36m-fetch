@@ -12,9 +12,16 @@ from tqdm import tqdm
 import cv2
 from metadata import load_h36m_metadata
 from PIL import Image
+from multiprocessing import Pool
+from argparse import ArgumentParser
+import glob
 
 metadata = load_h36m_metadata()
 
+parser = ArgumentParser()
+parser.add_argument("--parallel", type=int, default=0, help="how many threads to use")
+args = parser.parse_args()
+ 
 # Subjects to include when preprocessing
 included_subjects = {
     'S1': 1,
@@ -166,9 +173,6 @@ def _transform_2dkp_annots(kps_, bbox_):
 
     return scaled_kps
 
-
-
-
 def process_view(out_dir, subject, action, subaction, camera):
     subj_dir = path.join('extracted', subject)
 
@@ -208,8 +212,8 @@ def process_view(out_dir, subject, action, subaction, camera):
     camera_int = infer_camera_intrinsics(poses_2d, poses_3d)
     camera_int_univ = infer_camera_intrinsics(poses_2d, poses_3d_univ)
 
-    #frame_indices = np.arange(0,50)
-    frame_indices = select_frame_indices_to_include(subject, poses_3d_univ) #UNCOMMENT THIS FOR COMON DATASET******************************************************************
+    frame_indices = np.arange(0, bboxes.shape[0]) 
+    #frame_indices = select_frame_indices_to_include(subject, poses_3d_univ) #UNCOMMENT THIS FOR COMON DATASET******************************************************************
     frames = frame_indices + 1
     video_file = path.join(subj_dir, 'Videos', base_filename + '.mp4')
     frames_dir = path.join(out_dir, 'imageSequence', camera)
@@ -236,6 +240,7 @@ def process_view(out_dir, subject, action, subaction, camera):
           if filename not in existing_range_files:
                 range_are_extracted = False
                 break
+
     if not frames_are_extracted:
         with TemporaryDirectory() as tmp_dir:
             # Use ffmpeg to extract frames into a temporary directory
@@ -244,21 +249,22 @@ def process_view(out_dir, subject, action, subaction, camera):
                 '-nostats', '-loglevel', '0',
                 '-i', video_file,
                 #'-vf', #'-qscale:v', '3', #'scale=224:224',
-                '-qscale:v', '3',
-                path.join(tmp_dir, 'img_%06d.jpg')
+                '-qscale:v', '3', 
+                path.join(tmp_dir, 'img_%06d.jpg') 
             ])
             print('\nfiles extracted from: %s / to: %s'% ( video_file, tmp_dir))
 
             # Move included frame images into the output directory
-            
-            for i in frames:
+            for k,i in enumerate(frames):
                 idx = i-1
                 filename = 'img_%06d.jpg' % i
+                if not os.path.isfile(path.join(tmp_dir, filename)):
+                    end_frames = k
+                    break
                 img = Image.open(path.join(tmp_dir, filename)) 
-                #img = np.array(img) * bgsub[idx][:, :, np.newaxis]
-                #img = Image.fromarray(img)
+                img = np.array(img) * bgsub[idx][:, :, np.newaxis]
+                img = Image.fromarray(img)
                 _transform_image(img, bboxes[idx]).save(path.join(frames_dir, filename)) 
-
 
                 #move(
                 #    path.join(tmp_dir, filename),
@@ -302,10 +308,10 @@ def process_view(out_dir, subject, action, subaction, camera):
                 cv2.imwrite(path.join(range_dir, 'tof_intensity%06d.jpg' % (i+1)),
                             _decode_tof_intensity(_pad_with_zeros(tof_int[tof_sync[i] - 1], (224,224))))
     return {
-        'pose/2d': poses_2d[frame_indices],
-        'pose/3d-univ': poses_3d_univ[frame_indices],
-        'pose/3d': poses_3d[frame_indices],
-        'pose/3d-original': poses_3d_original[frame_indices],
+            'pose/2d': poses_2d[frame_indices],
+            'pose/3d-univ': poses_3d_univ[frame_indices],
+            'pose/3d': poses_3d[frame_indices],
+            'pose/3d-original': poses_3d_original[frame_indices],
         'intrinsics/' + camera: camera_int,
         'intrinsics-univ/' + camera: camera_int_univ,
         'frame': frames,
@@ -321,7 +327,7 @@ def process_view(out_dir, subject, action, subaction, camera):
 def process_subaction(subject, action, subaction):
     datasets = {}
     #dir_out = 'processed'
-    dir_out = 'video_processed_resized_crop'
+    dir_out = 'resized_crop_simplified_full_dataset'
     out_dir = path.join(dir_out, subject, metadata.action_names[action] + '-' + subaction)
     makedirs(out_dir, exist_ok=True)
 
@@ -351,6 +357,7 @@ def process_subaction(subject, action, subaction):
     with h5py.File(path.join(out_dir, 'annot.h5'), 'w') as f:
         for name, data in datasets.items():
             f.create_dataset(name, data=data)
+    print('finished') 
 
 
 def process_all():
@@ -364,9 +371,17 @@ def process_all():
             for action, subaction in sequence_mappings[subject].keys()
             if int(action) > 1 and action not in ['54138969', '55011271', '58860488', '60457274']  # Exclude '_ALL'
         ]
+    if not args.parallel:
+        for subject, action, subaction in tqdm(subactions, ascii=True, leave=False):
+            process_subaction(subject, action, subaction)
+    else:
+        params_subactions = list()
+        params_subactions = [(subject, action, subaction) for subject,action,subaction in subactions]
+        pool = Pool(args.parallel)
+        result = pool.starmap(process_subaction, params_subactions)
+        pool.close()
+        pool.join()
 
-    for subject, action, subaction in tqdm(subactions, ascii=True, leave=False):
-        process_subaction(subject, action, subaction)
 
 
 if __name__ == '__main__':

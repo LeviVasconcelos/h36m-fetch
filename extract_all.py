@@ -35,21 +35,23 @@ def extract_all():
   for subject_id in tqdm(subjects, ascii=True):
       out_dir = path.join('extracted', subject_id)
       makedirs(out_dir, exist_ok=True)
-      extract_tgz('archives/Poses_D2_Positions_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'Poses_D2_Positions'))
-      extract_tgz('archives/Poses_D3_Positions_mono_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'Poses_D3_Positions_mono')),
-      extract_tgz('archives/Poses_D3_Positions_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'Poses_D3_Positions')),
-      extract_tgz('archives/Poses_D3_Positions_mono_universal_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'Poses_D3_Positions_mono_universal')),
-      extract_tgz('archives/Videos_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'Videos'))
-      extract_tgz('archives/BBoxes_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'BBox'))
-      extract_tgz('archives/TOF_{}.tgz'.format(subject_id),
-                  path.join(out_dir, 'TOF'))
-
+      #extract_tgz('archives/Poses_D2_Positions_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'Poses_D2_Positions'))
+      #extract_tgz('archives/Poses_D3_Positions_mono_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'Poses_D3_Positions_mono')),
+      #extract_tgz('archives/Poses_D3_Positions_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'Poses_D3_Positions')),
+      #extract_tgz('archives/Poses_D3_Positions_mono_universal_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'Poses_D3_Positions_mono_universal')),
+      #extract_tgz('archives/Videos_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'Videos'))
+      #extract_tgz('archives/BBoxes_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'BBox'))
+      #extract_tgz('archives/TOF_{}.tgz'.format(subject_id),
+      #            path.join(out_dir, 'TOF'))
+      extract_tgz('archives/BGSub_{}.tgz'.format(subject_id),
+                  path.join(out_dir, 'BGSub'))
+ 
 
 
 if __name__ == '__main__':
